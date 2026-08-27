@@ -11,6 +11,7 @@ from pathlib import Path
 
 from . import config, dev_agent, evaluator, report
 from .llm import get_llm
+from .logging_setup import setup_logging
 from .registry import Registry
 from .runtime import load_package, run_agent
 
@@ -55,35 +56,27 @@ def _get_registry() -> Registry:
 
 
 def _create_agent(requirement: str, name: str | None, llm) -> str:
-    """DevAgent 生成 -> 冒烟测试 -> 注册，返回 agent_id。"""
-    print(f"▶ 1/4 设计 + 实现：DevAgent 正在根据需求生成智能体三件套 ...")
-    data = dev_agent.generate(requirement, llm)
-    if name:
-        data["name"] = name
+    """启动 DevAgent LangGraph 图 -> 注册，返回 agent_id。"""
+    setup_logging(agent_id=None, logs_dir=config.LOGS_DIR)
+    print("▶ 1/3 开发：DevAgent（LangGraph）正在生成并自测智能体 ...")
+    state = dev_agent.develop(requirement, llm, config.AGENTS_DIR, name=name)
+    agent_id = state["agent_id"]
+    agent_dir = state["agent_dir"]
+    # 后续日志落到该智能体的专属文件
+    setup_logging(agent_id=agent_id, logs_dir=config.LOGS_DIR)
+    print(f"   ✅ 智能体已生成并通过语法 + 冒烟测试：{agent_dir}")
 
-    agent_id = dev_agent.make_agent_id(data.get("name") or "agent")
-    vdir = dev_agent.scaffold_agent(data, config.AGENTS_DIR, agent_id, "v1")
-    print(f"   智能体包已生成：{vdir}")
-
-    print("▶ 2/4 冒烟测试：验证智能体能跑通 ...")
-    pkg = load_package(vdir)
-    ok, out = dev_agent.smoke_test(pkg, llm)
-    if not ok:
-        print(f"   ❌ 冒烟测试失败：{out}")
-        print("   未注册入库，请调整需求后重试。")
-        raise SystemExit(1)
-    print(f"   ✅ 冒烟测试通过（输出：{out[:80]}{'...' if len(out) > 80 else ''}）")
-
-    print("▶ 3/4 注册入库 ...")
+    print("▶ 2/3 注册入库 ...")
     reg = _get_registry()
+    design = state.get("design", {})
     reg.register_agent(
         {
             "id": agent_id,
-            "name": data.get("name", agent_id),
-            "description": data.get("description", ""),
+            "name": design.get("name", agent_id),
+            "description": design.get("description", ""),
             "source": "developed",
             "version": "v1",
-            "agent_dir": str(vdir),
+            "agent_dir": agent_dir,
         }
     )
     print(f"   ✅ 已注册：{agent_id}（状态: registered）")
@@ -93,7 +86,7 @@ def _create_agent(requirement: str, name: str | None, llm) -> str:
 def cmd_create(args) -> int:
     llm = get_llm()
     agent_id = _create_agent(" ".join(args.requirement), args.name, llm)
-    print(f"▶ 4/4 下一步：python main.py evaluate {agent_id}")
+    print(f"▶ 3/3 下一步：python main.py evaluate {agent_id}")
     return 0
 
 

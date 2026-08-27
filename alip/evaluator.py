@@ -17,7 +17,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .llm import LLMClient
+from langchain_deepseek import ChatDeepSeek
+
 from .runtime import AgentPackage, run_agent
 
 
@@ -55,7 +56,7 @@ def _check(op: str, actual: float, threshold: float) -> bool:
     raise ValueError(f"未知比较符: {op}")
 
 
-def evaluate(agent: dict, testset_path: Path, llm: LLMClient, package: AgentPackage | None = None) -> EvaluationReport:
+def evaluate(agent: dict, testset_path: Path, llm: ChatDeepSeek, package: AgentPackage | None = None) -> EvaluationReport:
     """运行评测并返回报告。agent 需含 id/current_version/agent_dir。"""
     ts = json.loads(testset_path.read_text(encoding="utf-8"))
     cases = ts["cases"]

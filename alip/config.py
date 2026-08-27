@@ -15,6 +15,7 @@ SAMPLES_DIR = ROOT / "samples"        # 手工编写的示例智能体
 TESTSETS_DIR = ROOT / "testsets"      # 评测测试集（含指标阈值）
 DATA_DIR = ROOT / "data"              # 本地数据
 REPORTS_DIR = DATA_DIR / "reports"    # 评测报告
+LOGS_DIR = DATA_DIR / "logs"          # 持久化日志
 DB_PATH = DATA_DIR / "platform.db"    # SQLite 数据库
 
 ENV_PATH = ROOT / ".env"
@@ -25,7 +26,7 @@ DEFAULT_MODEL = "deepseek-chat"
 
 def ensure_dirs() -> None:
     """确保运行时所需目录存在。"""
-    for d in (AGENTS_DIR, DATA_DIR, REPORTS_DIR):
+    for d in (AGENTS_DIR, DATA_DIR, REPORTS_DIR, LOGS_DIR):
         d.mkdir(parents=True, exist_ok=True)
 
 

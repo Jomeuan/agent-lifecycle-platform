@@ -8,16 +8,47 @@
 
 from __future__ import annotations
 
-import json
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 import yaml
+from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_deepseek import ChatDeepSeek
+from langgraph.prebuilt import create_react_agent
 
 from . import tools as tool_mod
-from .llm import LLMClient
+from .logging_setup import get_logger
+
+llm_log = get_logger("llm")
+
+
+def _render_content(content) -> str:
+    if isinstance(content, list):
+        return "".join(str(c) for c in content)
+    return str(content)
+
+
+class _LLMCallLoggingHandler(BaseCallbackHandler):
+    """把 ReAct 循环里每次 LLM 请求/输出记录到 alip.llm 日志。"""
+
+    def on_chat_model_start(self, serialized, messages, **kwargs):
+        for batch in messages:
+            for m in batch:
+                role = getattr(m, "type", type(m).__name__)
+                llm_log.debug("请求 [%s]: %s", role, _render_content(m.content))
+
+    def on_llm_end(self, response, **kwargs):
+        for gen_list in response.generations:
+            for gen in gen_list:
+                msg = getattr(gen, "message", None)
+                if msg is not None:
+                    llm_log.debug(
+                        "输出: content=%s tool_calls=%s",
+                        _render_content(msg.content),
+                        getattr(msg, "tool_calls", None),
+                    )
 
 
 @dataclass
@@ -72,82 +103,46 @@ def load_package(agent_dir: Path) -> AgentPackage:
 def run_agent(
     package: AgentPackage,
     user_input: str,
-    llm: LLMClient,
+    llm: ChatDeepSeek,
     temperature: float | None = None,
     max_steps: int | None = None,
 ) -> RunResult:
-    """执行 ReAct 循环，返回最终输出与开销统计。"""
-    max_steps = max_steps or package.max_steps
-    temperature = package.temperature if temperature is None else temperature
-    tool_schema = tool_mod.schema_for_tools(package.tools)
-
-    messages: list[dict] = [
-        {"role": "system", "content": package.prompt},
-        {"role": "user", "content": user_input},
-    ]
-
+    """用 LangGraph 预构建 ReAct agent 执行，返回最终输出与开销统计。"""
     result = RunResult(output="")
     start = time.perf_counter()
-    final_output = ""
-
     try:
-        for _ in range(max_steps):
-            resp = llm.chat(
-                messages,
-                tools=tool_schema or None,
-                temperature=temperature,
-                model=package.model or None,
-            )
-            result.prompt_tokens += resp.prompt_tokens
-            result.completion_tokens += resp.completion_tokens
+        lc_tools = tool_mod.to_langchain_tools(package.tools)
+        temp = package.temperature if temperature is None else temperature
+        model = llm.bind(temperature=temp) if temp is not None else llm
 
-            if resp.tool_calls:
-                messages.append(
-                    {
-                        "role": "assistant",
-                        "content": resp.content,
-                        "tool_calls": [
-                            {
-                                "id": tc.id,
-                                "type": "function",
-                                "function": {"name": tc.name, "arguments": tc.arguments},
-                            }
-                            for tc in resp.tool_calls
-                        ],
-                    }
-                )
-                for tc in resp.tool_calls:
-                    result.tool_calls += 1
-                    fn = package.tools.get(tc.name)
-                    if fn is None:
-                        obs = f"Error: 未知工具 '{tc.name}'"
-                        result.tool_errors += 1
-                    else:
-                        try:
-                            args = json.loads(tc.arguments) if tc.arguments.strip() else {}
-                            if isinstance(args, dict):
-                                out = fn(**args)
-                            else:
-                                out = fn(args)
-                            obs = str(out)
-                        except Exception as exc:  # noqa: BLE001
-                            obs = f"ToolError: {exc}"
-                            result.tool_errors += 1
-                    result.steps.append(
-                        {"type": "tool_call", "name": tc.name, "arguments": tc.arguments, "result": obs}
-                    )
-                    messages.append({"role": "tool", "tool_call_id": tc.id, "content": obs})
-            else:
-                final_output = resp.content or ""
-                result.steps.append({"type": "answer", "content": final_output})
+        agent = create_react_agent(model, lc_tools, prompt=package.prompt)
+        recursion_limit = (max_steps or package.max_steps) * 2 + 4
+        final_state = agent.invoke(
+            {"messages": [HumanMessage(content=user_input)]},
+            config={"recursion_limit": recursion_limit, "callbacks": [_LLMCallLoggingHandler()]},
+        )
+        messages = final_state.get("messages", [])
+
+        for msg in messages:
+            if isinstance(msg, AIMessage):
+                um = msg.usage_metadata or {}
+                result.prompt_tokens += int(um.get("input_tokens", 0))
+                result.completion_tokens += int(um.get("output_tokens", 0))
+                if msg.tool_calls:
+                    result.tool_calls += len(msg.tool_calls)
+            elif isinstance(msg, ToolMessage):
+                if getattr(msg, "status", None) == "error" or str(msg.content).startswith("Error:"):
+                    result.tool_errors += 1
+
+        for msg in reversed(messages):
+            if isinstance(msg, AIMessage) and msg.content:
+                result.output = str(msg.content)
                 break
-        else:
-            result.steps.append({"type": "max_steps_reached", "content": final_output})
-            final_output = final_output or "（未在最大步数内得到最终答案）"
+        if not result.output:
+            result.output = "（未得到最终答案）"
     except Exception as exc:  # noqa: BLE001
         result.error = str(exc)
-        final_output = f"运行错误: {exc}"
+        result.output = f"运行错误: {exc}"
 
-    result.output = final_output
     result.latency_ms = (time.perf_counter() - start) * 1000.0
     return result

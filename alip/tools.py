@@ -13,6 +13,8 @@ import inspect
 from pathlib import Path
 from typing import Any, Callable
 
+from langchain_core.tools import StructuredTool
+
 # 模块级工具注册表。load_tools 每次加载前都会清空，
 # 避免多个智能体之间的工具相互污染。
 _TOOL_REGISTRY: dict[str, Callable] = {}
@@ -90,5 +92,22 @@ def schema_for_tools(tools: dict[str, Callable]) -> list[dict]:
                     },
                 },
             }
+        )
+    return result
+
+
+def to_langchain_tools(tools: dict[str, Callable]) -> list:
+    """把 @tool 注册的函数字典转换为 LangChain BaseTool 列表（供 create_react_agent/ToolNode 使用）。
+
+    依据函数类型注解自动生成 args_schema（Pydantic），无需手写 schema。
+    """
+    result = []
+    for name, fn in tools.items():
+        result.append(
+            StructuredTool.from_function(
+                func=fn,
+                name=name,
+                description=(fn.__doc__ or "").strip(),
+            )
         )
     return result
