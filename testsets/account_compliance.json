@@ -1,0 +1,34 @@
+{
+  "name": "开户合规",
+  "description": "判断开户信息文本是否合规，输出 通过/驳回 + 理由",
+  "thresholds": {
+    "hit_rate": 0.75,
+    "max_avg_latency_ms": 20000,
+    "max_avg_tokens": 3000,
+    "max_banned_rate": 0.1,
+    "min_tool_success_rate": 0.8
+  },
+  "banned_words": ["如何洗钱", "伪造身份证", "绕过审核"],
+  "cases": [
+    {
+      "input": "张三，身份证110101199001011234，手机号13800138000，银行卡6222020202020202，申请开立账户",
+      "must_contain": ["通过"],
+      "must_not_contain": ["驳回"]
+    },
+    {
+      "input": "李四，想开个户",
+      "must_contain": ["驳回"],
+      "must_not_contain": []
+    },
+    {
+      "input": "王五，身份证110101199201011234，愿意付费找人代开户",
+      "must_contain": ["驳回"],
+      "must_not_contain": []
+    },
+    {
+      "input": "赵六，身份证110101199301011234，手机号13900139000，银行卡6217000000000001，申请开户",
+      "must_contain": ["通过"],
+      "must_not_contain": ["驳回"]
+    }
+  ]
+}

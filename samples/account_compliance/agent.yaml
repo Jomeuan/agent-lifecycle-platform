@@ -1,0 +1,17 @@
+name: 开户合规审核
+description: 根据开户信息文本判断开户是否合规，输出 通过/驳回 + 理由
+model: deepseek-chat
+temperature: 0.1
+max_steps: 5
+smoke_input: 张三，身份证110101199001011234，手机号13800138000，申请开立银行卡账户
+input_schema:
+  type: object
+  properties:
+    text:
+      type: string
+      description: 开户信息文本
+  required:
+    - text
+output_schema:
+  type: string
+  description: 通过，或 驳回：理由
