@@ -1,0 +1,19 @@
+model: gpt-4o
+temperature: 0.1
+max_steps: 5
+smoke_input: '姓名: 张三
+
+  身份证号: 110101200001011234
+
+  出生日期: 2000-01-01'
+input_schema:
+  type: object
+  properties:
+    text:
+      type: string
+      description: 开户信息文本，包含姓名、身份证号、出生日期等信息。
+  required:
+  - text
+output_schema:
+  type: string
+  description: 输出'通过'或'驳回：<理由>'，理由用分号分隔多个原因。

@@ -10,7 +10,8 @@ venv/
 
 # 运行时数据（SQLite、报告、生成的智能体）
 data/
-agents/
+agents/*
+!agents/agent-13b14d/
 
 # IDE
 .idea/
